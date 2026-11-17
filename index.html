@@ -1,0 +1,265 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#111b19">
+<title>Mi Taxi</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#101816;color:#f4f7f5;font-family:Arial,sans-serif}
+header{padding:20px;background:#192522;border-bottom:1px solid #34463f}
+h1{margin:0;font-size:25px}
+h2{font-size:18px;margin:0 0 15px}
+small,.muted{color:#aebeb6}
+main{max-width:600px;margin:auto;padding:15px 15px 90px}
+.card{background:#1c2925;border:1px solid #34473e;border-radius:15px;padding:17px;margin-bottom:15px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:15px}
+button{border:0;border-radius:10px;padding:13px 10px;font-weight:bold;cursor:pointer;background:#32c785;color:#081b12}
+button.alt{background:#34483e;color:white}
+button.danger{background:#ad4b4b;color:white}
+button.active{outline:2px solid #6ef2b3}
+.grid button{font-size:12px}
+input,select{width:100%;padding:12px;margin:5px 0 12px;background:#111c18;border:1px solid #496155;border-radius:9px;color:white;font-size:16px}
+label{font-size:13px;color:#c0d0c6}
+.price{font-size:28px;font-weight:bold;color:#5de5a0}
+.tag{font-size:12px;padding:5px 9px;background:#34483e;border-radius:20px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.actions button{flex:1}
+nav{position:fixed;bottom:0;left:0;right:0;background:#192522;display:flex;justify-content:space-around;padding:12px;border-top:1px solid #34463f}
+nav button{background:transparent;color:#c5d6cc;font-size:13px}
+nav button.selected{color:#5de5a0}
+.page{display:none}
+.page.show{display:block}
+hr{border:0;border-top:1px solid #34463f;margin:14px 0}
+</style>
+</head>
+<body>
+<header>
+<h1>Mi Taxi</h1>
+<small>Panel del conductor</small>
+</header>
+<main>
+<section id="home" class="page show">
+<div class="card">
+<h2>Mi disponibilidad</h2>
+<div class="grid">
+<button id="sDisponible" onclick="setStatus('Disponible')">Disponible</button>
+<button id="sOcupado" class="alt" onclick="setStatus('Ocupado')">Ocupado</button>
+<button id="sNoDisponible" class="alt" onclick="setStatus('No disponible')">No disponible</button>
+</div>
+<p class="muted" id="statusText"></p>
+</div>
+<div class="card">
+<div class="row"><h2>Resumen</h2><span class="tag">Hoy</span></div>
+<p>Ganancias cobradas</p>
+<div class="price" id="earnings">S/ 0.00</div>
+<hr>
+<div class="row"><span>Solicitudes pendientes</span><strong id="pendingCount">0</strong></div>
+<br>
+<div class="row"><span>Servicios aceptados</span><strong id="acceptedCount">0</strong></div>
+<br>
+<div class="row"><span>Servicios finalizados hoy</span><strong id="completedCount">0</strong></div>
+</div>
+<div class="card">
+<h2>Solicitudes pendientes</h2>
+<div id="pendingList"></div>
+</div>
+</section>
+
+<section id="new" class="page">
+<div class="card">
+<h2>Nueva reserva</h2>
+<form id="bookingForm">
+<label>Nombre del pasajero</label>
+<input id="passenger" required placeholder="Pasajero Carlos">
+<label>Teléfono</label>
+<input id="phone" type="tel" placeholder="Número de WhatsApp">
+<label>Origen</label>
+<input id="origin" required placeholder="Punto de recogida">
+<label>Destino</label>
+<input id="destination" required placeholder="Destino del viaje">
+<label>Fecha y hora</label>
+<input id="datetime" type="datetime-local" required>
+<label>Distancia del viaje (km)</label>
+<input id="km" type="number" min="0.1" step="0.1" value="6" required>
+<label>Recargo por tráfico (%)</label>
+<input id="traffic" type="number" min="0" max="40" step="1" value="0" required>
+<hr>
+<p>Tarifa base: S/ 1.80 por km</p>
+<div class="row"><strong>Total estimado</strong><span class="price" id="estimate">S/ 10.80</span></div>
+<br>
+<button type="submit" style="width:100%">Guardar solicitud</button>
+</form>
+</div>
+</section>
+
+<section id="history" class="page">
+<div class="card">
+<h2>Historial de servicios</h2>
+<label>Filtrar por estado</label>
+<select id="filter" onchange="render()">
+<option value="Todos">Todos</option>
+<option>Pendiente</option>
+<option>Aceptada</option>
+<option>Finalizada</option>
+<option>Cancelada</option>
+</select>
+<div id="historyList"></div>
+</div>
+<div class="card">
+<h2>Respaldo</h2>
+<p class="muted">Los datos se guardan en este navegador. Exporta una copia antes de borrar datos o cambiar de teléfono.</p>
+<button onclick="exportData()">Exportar reservas</button>
+</div>
+</section>
+</main>
+
+<nav>
+<button class="selected" onclick="page('home',this)">Inicio</button>
+<button onclick="page('new',this)">Nueva reserva</button>
+<button onclick="page('history',this)">Historial</button>
+</nav>
+
+<script>
+const KEY="mi_taxi_v1";
+let bookings=[];
+try{
+const saved=JSON.parse(localStorage.getItem(KEY)||"[]");
+if(Array.isArray(saved))bookings=saved;
+}catch(e){}
+let availability=localStorage.getItem("mi_taxi_status")||"No disponible";
+
+function save(){
+try{
+localStorage.setItem(KEY,JSON.stringify(bookings));
+return true;
+}catch(e){
+alert("No se pudo guardar. Revisa el almacenamiento.");
+return false;
+}
+}
+function money(n){return "S/ "+Number(n).toFixed(2)}
+function calculate(km,traffic){
+return Math.round(km*1.8*(1+traffic/100)*100)/100;
+}
+function safe(value){
+return String(value??"").replace(/[&<>"']/g,c=>({
+"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+}[c]));
+}
+function setStatus(value){
+availability=value;
+localStorage.setItem("mi_taxi_status",value);
+render();
+}
+function page(id,button){
+document.querySelectorAll(".page").forEach(p=>p.classList.remove("show"));
+document.getElementById(id).classList.add("show");
+document.querySelectorAll("nav button").forEach(b=>b.classList.remove("selected"));
+button.classList.add("selected");
+render();
+}
+function updateEstimate(){
+let km=Number(document.getElementById("km").value);
+let traffic=Number(document.getElementById("traffic").value);
+document.getElementById("estimate").textContent=
+km>0&&traffic>=0&&traffic<=40?money(calculate(km,traffic)):"Revisa los valores";
+}
+document.getElementById("km").addEventListener("input",updateEstimate);
+document.getElementById("traffic").addEventListener("input",updateEstimate);
+
+document.getElementById("bookingForm").addEventListener("submit",function(e){
+e.preventDefault();
+let km=Number(document.getElementById("km").value);
+let traffic=Number(document.getElementById("traffic").value);
+if(!(km>0)||traffic<0||traffic>40)return alert("Revisa distancia y tráfico.");
+const booking={
+id:Date.now().toString()+Math.random().toString(36).slice(2),
+passenger:document.getElementById("passenger").value.trim(),
+phone:document.getElementById("phone").value.trim(),
+origin:document.getElementById("origin").value.trim(),
+destination:document.getElementById("destination").value.trim(),
+datetime:document.getElementById("datetime").value,
+km:km,
+traffic:traffic,
+price:calculate(km,traffic),
+status:"Pendiente",
+completedAt:null
+};
+if(!booking.passenger||!booking.origin||!booking.destination||!booking.datetime)return;
+bookings.push(booking);
+if(!save()){bookings.pop();return;}
+this.reset();
+document.getElementById("km").value=6;
+document.getElementById("traffic").value=0;
+updateEstimate();
+alert("Reserva guardada correctamente");
+render();
+});
+function changeStatus(id,status){
+const b=bookings.find(x=>x.id===id);
+if(!b)return;
+const transitions={
+"Pendiente":["Aceptada","Cancelada"],
+"Aceptada":["Finalizada","Cancelada"]
+};
+if(!(transitions[b.status]||[]).includes(status))return;
+const oldStatus=b.status,oldDate=b.completedAt;
+b.status=status;
+if(status==="Finalizada")b.completedAt=new Date().toISOString();
+if(!save()){b.status=oldStatus;b.completedAt=oldDate;}
+render();
+}
+function card(b){
+let actions="";
+if(b.status==="Pendiente"){
+actions='<button onclick="changeStatus(\''+b.id+'\',\'Aceptada\')">Aceptar</button><button class="danger" onclick="changeStatus(\''+b.id+'\',\'Cancelada\')">Rechazar</button>';
+}
+if(b.status==="Aceptada"){
+actions='<button onclick="changeStatus(\''+b.id+'\',\'Finalizada\')">Finalizada y cobrada</button><button class="danger" onclick="changeStatus(\''+b.id+'\',\'Cancelada\')">Cancelar</button>';
+}
+return '<div class="card">'+
+'<div class="row"><strong>'+safe(b.passenger)+'</strong><span class="tag">'+safe(b.status)+'</span></div>'+
+'<p>'+safe(b.origin)+' → '+safe(b.destination)+'</p>'+
+'<p class="muted">'+safe(b.datetime.replace("T"," "))+' · '+safe(b.km)+' km · Tráfico '+safe(b.traffic)+'%</p>'+
+'<div class="price">'+money(b.price)+'</div>'+
+'<div class="actions">'+actions+'</div></div>';
+}
+function todayLocal(date){
+return new Date(date).toLocaleDateString("en-CA");
+}
+function render(){
+["Disponible","Ocupado","No disponible"].forEach(s=>{
+let el=document.getElementById("s"+s.replace(" ",""));
+el.classList.toggle("active",availability===s);
+});
+document.getElementById("statusText").textContent="Estado actual: "+availability;
+let today=new Date().toLocaleDateString("en-CA");
+let finishedToday=bookings.filter(b=>b.status==="Finalizada"&&b.completedAt&&todayLocal(b.completedAt)===today);
+document.getElementById("earnings").textContent=money(finishedToday.reduce((sum,b)=>sum+b.price,0));
+document.getElementById("pendingCount").textContent=bookings.filter(b=>b.status==="Pendiente").length;
+document.getElementById("acceptedCount").textContent=bookings.filter(b=>b.status==="Aceptada").length;
+document.getElementById("completedCount").textContent=finishedToday.length;
+let pending=bookings.filter(b=>b.status==="Pendiente");
+document.getElementById("pendingList").innerHTML=pending.length?pending.map(card).join(""):'<p class="muted">No tienes solicitudes pendientes.</p>';
+let filter=document.getElementById("filter").value;
+let filtered=bookings.filter(b=>filter==="Todos"||b.status===filter);
+document.getElementById("historyList").innerHTML=filtered.length?filtered.map(card).join(""):'<p class="muted">No hay servicios registrados.</p>';
+}
+function exportData(){
+const blob=new Blob([JSON.stringify(bookings,null,2)],{type:"application/json"});
+const url=URL.createObjectURL(blob);
+const a=document.createElement("a");
+a.href=url;
+a.download="mi_taxi_reservas.json";
+a.click();
+setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+updateEstimate();
+render();
+</script>
+</body>
+</html>
