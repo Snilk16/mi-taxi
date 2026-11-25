@@ -29,8 +29,36 @@ button:disabled{opacity:.55;cursor:wait}
 .cf-turnstile{margin:20px 0 4px;min-height:65px;overflow:hidden}
 footer{text-align:center;color:#b5c6ba;font-size:12px;padding:10px 18px 26px}
 a{color:#91f4b8}
+.tracking{background:#14241a;border:1px solid #45604d;border-radius:12px;padding:17px;margin-top:15px}.tracking strong{color:#91f4b8}.tracking button{margin-top:9px}.tracking .alt{background:#344c3d;color:#fff}.code{font:13px monospace;overflow-wrap:anywhere;user-select:all}.reply{display:flex;gap:8px}.reply button{flex:1}.heading{margin:0 0 10px}
 </style>
-<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer>async function api(endpoint,body){
+ const c=new AbortController(),timer=setTimeout(()=>c.abort(),20000);
+ try{const r=await fetch(BASE+endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:c.signal});let j={};try{j=await r.json()}catch{};if(!r.ok)throw new Error(j.error||'No se pudo completar la operación');return j}
+ finally{clearTimeout(timer)}
+}
+const trackResult=$('trackingResult');
+function trackingMessage(value){trackResult.replaceChildren();const p=document.createElement('p');p.textContent=value;trackResult.append(p);trackResult.classList.remove('hidden')}
+async function consultar(){
+ const token=$('trackingToken').value.trim();if(!token){trackingMessage('Ingresa tu código de seguimiento.');return}
+ const btn=$('consultarBtn');btn.disabled=true;
+ try{
+  const data=await api('consultar-reserva',{token});trackResult.replaceChildren();trackResult.classList.remove('hidden');
+  const title=document.createElement('h3');title.className='heading';title.textContent='Estado: '+data.estado;trackResult.append(title);
+  const code=document.createElement('p');code.className='code';code.textContent='Código: '+token;trackResult.append(code);
+  const price=document.createElement('p');price.textContent=data.precio_cotizado===null?'El conductor todavía no ha enviado un precio.':'Cotización: S/ '+Number(data.precio_cotizado).toFixed(2);trackResult.append(price);
+  const answer=document.createElement('p');answer.textContent='Tu respuesta: '+({sin_respuesta:'Pendiente',aceptada:'Aceptaste el precio',rechazada:'Rechazaste el precio'}[data.respuesta_cotizacion]||data.respuesta_cotizacion);trackResult.append(answer);
+  if(data.precio_cotizado!==null&&data.estado==='pendiente'&&data.respuesta_cotizacion==='sin_respuesta'){
+   const buttons=document.createElement('div');buttons.className='reply';
+   for(const [label,decision] of [['Aceptar precio','aceptada'],['Rechazar precio','rechazada']]){const b=document.createElement('button');b.type='button';b.className=decision==='rechazada'?'alt':'';b.textContent=label;b.addEventListener('click',async()=>{
+    if(!confirm('¿Confirmas que deseas '+(decision==='aceptada'?'aceptar':'rechazar')+' esta cotización?'))return;
+    b.disabled=true;try{const r=await api('responder-cotizacion',{token,respuesta:decision});alert(r.mensaje);await consultar()}catch(e){alert(e.message)}finally{b.disabled=false}
+   });buttons.append(b)}trackResult.append(buttons)
+  }
+ }catch(e){trackingMessage('No se pudo consultar: '+(e.message||'error de conexión'))}finally{btn.disabled=false}
+}
+$('consultarBtn').addEventListener('click',consultar);
+try{const saved=localStorage.getItem('mi_taxi_ultimo_seguimiento');if(saved)$('trackingToken').value=saved}catch(e){}
+</script>
 </head>
 <body>
 <header><div class="wrap"><h1>Mi Taxi</h1><small>Solicita tu taxi en Piura · Sin crear una cuenta</small></div></header>
@@ -59,12 +87,14 @@ a{color:#91f4b8}
 </form>
 <p id="message" class="notice hidden" role="status" aria-live="polite"></p>
 </section>
+<section class="card" id="trackingCard"><h2>Consultar mi solicitud</h2><p class="muted">Guarda tu código privado. Cualquier persona con ese código podrá consultar y responder tu cotización.</p><label for="trackingToken">Código de seguimiento</label><input id="trackingToken" type="text" spellcheck="false" autocomplete="off" placeholder="Código de tu solicitud"><button type="button" id="consultarBtn">Consultar estado y precio</button><div id="trackingResult" class="tracking hidden" aria-live="polite"></div></section>
 <section class="card"><h2>Antes de solicitar</h2><p class="muted">Enviar la solicitud no garantiza la reserva. Recibirás la confirmación del conductor por el medio de contacto que proporciones. El precio se acordará antes del servicio.</p></section>
 </main>
 <footer>Mi Taxi · Piura, Perú</footer>
 <script>
 'use strict';
-const ENDPOINT='https://ygluhapwbnmcmtzuhhkz.supabase.co/functions/v1/solicitar-taxi';
+const BASE='https://ygluhapwbnmcmtzuhhkz.supabase.co/functions/v1/';
+const ENDPOINT=BASE+'solicitar-taxi';
 const $=id=>document.getElementById(id);
 function notice(text,error=false){const el=$('message');el.textContent=text;el.className='notice'+(error?' error':'');el.scrollIntoView({behavior:'smooth',block:'nearest'});}
 function resetCaptcha(){if(window.turnstile){try{window.turnstile.reset()}catch(e){console.warn('Turnstile reset',e)}}}
@@ -89,11 +119,45 @@ $('bookingForm').addEventListener('submit',async event=>{
   let result={};try{result=await response.json()}catch{}
   if(!response.ok){throw new Error(result.error||'No se pudo registrar la solicitud.');}
   $('bookingForm').reset();
-  notice('Tu solicitud fue recibida. Está pendiente de confirmación del conductor.');
+  if(result.seguimiento_token){
+   $('trackingToken').value=result.seguimiento_token;
+   try{localStorage.setItem('mi_taxi_ultimo_seguimiento',result.seguimiento_token)}catch(e){}
+   notice('Solicitud recibida. Tu código privado aparece abajo: guárdalo para consultar el precio.');
+   await consultar();
+  }else{
+   notice('Solicitud registrada, pero no llegó un código de seguimiento. Comunícate con el conductor antes de repetir el envío.',true);
+  }
  }catch(error){
   notice(error.name==='AbortError'?'La solicitud tardó demasiado. Consulta con el conductor antes de volver a enviarla.':'No se pudo confirmar el envío: '+(error.message||'error de conexión')+'. Si ya la enviaste, consulta antes de repetir.',true);
  }finally{resetCaptcha();button.disabled=false;button.textContent='Solicitar taxi';}
 });
+async function api(endpoint,body){
+ const c=new AbortController(),timer=setTimeout(()=>c.abort(),20000);
+ try{const r=await fetch(BASE+endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:c.signal});let j={};try{j=await r.json()}catch{};if(!r.ok)throw new Error(j.error||'No se pudo completar la operación');return j}
+ finally{clearTimeout(timer)}
+}
+const trackResult=$('trackingResult');
+function trackingMessage(value){trackResult.replaceChildren();const p=document.createElement('p');p.textContent=value;trackResult.append(p);trackResult.classList.remove('hidden')}
+async function consultar(){
+ const token=$('trackingToken').value.trim();if(!token){trackingMessage('Ingresa tu código de seguimiento.');return}
+ const btn=$('consultarBtn');btn.disabled=true;
+ try{
+  const data=await api('consultar-reserva',{token});trackResult.replaceChildren();trackResult.classList.remove('hidden');
+  const title=document.createElement('h3');title.className='heading';title.textContent='Estado: '+data.estado;trackResult.append(title);
+  const code=document.createElement('p');code.className='code';code.textContent='Código: '+token;trackResult.append(code);
+  const price=document.createElement('p');price.textContent=data.precio_cotizado===null?'El conductor todavía no ha enviado un precio.':'Cotización: S/ '+Number(data.precio_cotizado).toFixed(2);trackResult.append(price);
+  const answer=document.createElement('p');answer.textContent='Tu respuesta: '+({sin_respuesta:'Pendiente',aceptada:'Aceptaste el precio',rechazada:'Rechazaste el precio'}[data.respuesta_cotizacion]||data.respuesta_cotizacion);trackResult.append(answer);
+  if(data.precio_cotizado!==null&&data.estado==='pendiente'&&data.respuesta_cotizacion==='sin_respuesta'){
+   const buttons=document.createElement('div');buttons.className='reply';
+   for(const [label,decision] of [['Aceptar precio','aceptada'],['Rechazar precio','rechazada']]){const b=document.createElement('button');b.type='button';b.className=decision==='rechazada'?'alt':'';b.textContent=label;b.addEventListener('click',async()=>{
+    if(!confirm('¿Confirmas que deseas '+(decision==='aceptada'?'aceptar':'rechazar')+' esta cotización?'))return;
+    b.disabled=true;try{const r=await api('responder-cotizacion',{token,respuesta:decision});alert(r.mensaje);await consultar()}catch(e){alert(e.message)}finally{b.disabled=false}
+   });buttons.append(b)}trackResult.append(buttons)
+  }
+ }catch(e){trackingMessage('No se pudo consultar: '+(e.message||'error de conexión'))}finally{btn.disabled=false}
+}
+$('consultarBtn').addEventListener('click',consultar);
+try{const saved=localStorage.getItem('mi_taxi_ultimo_seguimiento');if(saved)$('trackingToken').value=saved}catch(e){}
 </script>
 </body>
 </html>
