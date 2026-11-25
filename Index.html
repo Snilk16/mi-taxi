@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#13221b">
+<title>Mi Taxi · Solicitar servicio</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#101916;color:#f5faf6;font:16px Arial,sans-serif;line-height:1.5}
+header{padding:22px 18px;background:#1b2b23;border-bottom:1px solid #405648}
+header .wrap{max-width:650px;margin:auto}
+h1{margin:0;font-size:29px}small,.muted{color:#b5c6ba}
+main{max-width:650px;margin:auto;padding:20px 16px 55px}
+.card{background:#1c2b23;border:1px solid #405648;border-radius:14px;padding:19px;margin-bottom:14px}
+h2{font-size:21px;margin:0 0 8px}
+p{overflow-wrap:anywhere;margin:9px 0 17px}
+label{display:block;font-size:14px;font-weight:600;margin:15px 0 5px}
+input,textarea,select{width:100%;padding:12px;background:#101916;border:1px solid #526e5a;color:#fff;border-radius:8px;font:16px Arial,sans-serif}
+input:focus,textarea:focus{outline:2px solid #41d18b;outline-offset:1px}
+textarea{resize:vertical;min-height:78px}
+button{padding:14px;border:0;border-radius:9px;background:#41d18b;color:#092017;font:bold 16px Arial,sans-serif;cursor:pointer;width:100%;margin-top:18px}
+button:disabled{opacity:.55;cursor:wait}
+.notice{padding:13px;border-radius:9px;background:#324d3c;margin:15px 0;overflow-wrap:anywhere}
+.notice.error{background:#603632}.hidden{display:none!important}
+.row{display:flex;gap:10px;align-items:center}
+.tag{display:inline-block;background:#304b3b;color:#91f4b8;border-radius:20px;padding:4px 10px;font-size:12px;font-weight:700;margin-bottom:10px}
+.help{color:#b5c6ba;font-size:13px;margin:5px 0}
+.cf-turnstile{margin:20px 0 4px;min-height:65px;overflow:hidden}
+footer{text-align:center;color:#b5c6ba;font-size:12px;padding:10px 18px 26px}
+a{color:#91f4b8}
+</style>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+</head>
+<body>
+<header><div class="wrap"><h1>Mi Taxi</h1><small>Solicita tu taxi en Piura · Sin crear una cuenta</small></div></header>
+<main>
+<section class="card">
+<span class="tag">Solicitud rápida</span>
+<h2>¿A dónde vamos?</h2>
+<p class="muted">Indícanos tu punto de recojo y tu destino. El conductor revisará tu solicitud y confirmará la disponibilidad y el precio.</p>
+<form id="bookingForm">
+<label for="nombre">Tu nombre *</label>
+<input id="nombre" name="nombre" autocomplete="name" maxlength="100" minlength="2" required placeholder="Ej. María Pérez">
+<label for="telefono">Celular de contacto (9 dígitos) *</label>
+<input id="telefono" name="telefono" type="tel" autocomplete="tel-national" inputmode="numeric" pattern="9[0-9]{8}" maxlength="9" required placeholder="9XXXXXXXX">
+<label for="origen">¿Dónde te recogemos? *</label>
+<input id="origen" name="origen" minlength="3" maxlength="300" required placeholder="Calle, urbanización o referencia">
+<label for="destino">¿A dónde vas? *</label>
+<input id="destino" name="destino" minlength="3" maxlength="300" required placeholder="Destino o referencia">
+<label for="horario">Fecha y hora (opcional)</label>
+<input id="horario" name="horario" type="datetime-local">
+<p class="help">Déjalo vacío si necesitas el servicio lo antes posible.</p>
+<label for="indicaciones">Indicaciones adicionales (opcional)</label>
+<textarea id="indicaciones" name="indicaciones" maxlength="500" placeholder="Ej. Frente a la puerta principal"></textarea>
+<div class="cf-turnstile" data-sitekey="0x4AAAAAAGSyC5P_APsoo1gJ" data-theme="dark" aria-label="Verificación de seguridad"></div>
+<p class="help">La verificación de seguridad protege el formulario contra envíos automatizados.</p>
+<button id="submitButton" type="submit">Solicitar taxi</button>
+</form>
+<p id="message" class="notice hidden" role="status" aria-live="polite"></p>
+</section>
+<section class="card"><h2>Antes de solicitar</h2><p class="muted">Enviar la solicitud no garantiza la reserva. Recibirás la confirmación del conductor por el medio de contacto que proporciones. El precio se acordará antes del servicio.</p></section>
+</main>
+<footer>Mi Taxi · Piura, Perú</footer>
+<script>
+'use strict';
+const ENDPOINT='https://ygluhapwbnmcmtzuhhkz.supabase.co/functions/v1/solicitar-taxi';
+const $=id=>document.getElementById(id);
+function notice(text,error=false){const el=$('message');el.textContent=text;el.className='notice'+(error?' error':'');el.scrollIntoView({behavior:'smooth',block:'nearest'});}
+function resetCaptcha(){if(window.turnstile){try{window.turnstile.reset()}catch(e){console.warn('Turnstile reset',e)}}}
+$('bookingForm').addEventListener('submit',async event=>{
+ event.preventDefault();
+ const button=$('submitButton');
+ if(button.disabled)return;
+ const nombre=$('nombre').value.trim(),telefono=$('telefono').value.trim(),origen=$('origen').value.trim(),destino=$('destino').value.trim();
+ const indicaciones=$('indicaciones').value.trim();
+ if(nombre.length<2||nombre.length>100||!/^9\d{8}$/.test(telefono)||origen.length<3||destino.length<3||origen.length>300||destino.length>300||indicaciones.length>500){notice('Revisa tu nombre, celular de 9 dígitos y direcciones.',true);return;}
+ const token=window.turnstile?.getResponse?.();
+ if(!token){notice('Completa o espera la verificación de seguridad antes de enviar.',true);return;}
+ let horario=null;
+ const raw=$('horario').value;
+ if(raw){const d=new Date(raw);if(!Number.isFinite(d.getTime())||d.getTime()<Date.now()-300000||d.getTime()>Date.now()+2592000000){notice('Selecciona una fecha válida dentro de los próximos 30 días.',true);return;}horario=d.toISOString();}
+ button.disabled=true;button.textContent='Enviando solicitud…';
+ try{
+  const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),20000);
+  let response;
+  try{response=await fetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre,telefono,origen,destino,horario,indicaciones,turnstileToken:token}),signal:controller.signal});}
+  finally{clearTimeout(timeout)}
+  let result={};try{result=await response.json()}catch{}
+  if(!response.ok){throw new Error(result.error||'No se pudo registrar la solicitud.');}
+  $('bookingForm').reset();
+  notice('Tu solicitud fue recibida. Está pendiente de confirmación del conductor.');
+ }catch(error){
+  notice(error.name==='AbortError'?'La solicitud tardó demasiado. Consulta con el conductor antes de volver a enviarla.':'No se pudo confirmar el envío: '+(error.message||'error de conexión')+'. Si ya la enviaste, consulta antes de repetir.',true);
+ }finally{resetCaptcha();button.disabled=false;button.textContent='Solicitar taxi';}
+});
+</script>
+</body>
+</html>
